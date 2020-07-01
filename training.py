@@ -8,18 +8,20 @@ Created on Tue May 26 18:07:24 2020
 
 import os
 import numpy as np
-#import pandas as pd
 import pickle
 import collections
+import es_core_news_md
+import random
+import spacy
+from spacy.util import minibatch, compounding
 from sklearn.model_selection import train_test_split
-#from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import Perceptron
 from sklearn.naive_bayes import MultinomialNB
 from sklearn import svm
-#from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn_crfsuite import CRF
 from sklearn_crfsuite.metrics import flat_classification_report
+from tqdm import tqdm # loading bar
 
 
 def get_negaciones(data):
@@ -122,9 +124,12 @@ def sent2features(sent):
     features = [word2features(sent, i) for i in range(len(sent))]
     return features
 
-def sent2labels(sent):
-    return [bio_tag for token, lemma, PoS, bio_tag in sent]
-
+def sent2labels(sent, training_cue):
+    if training_cue == 'cue':
+        return [bio_tag for token, lemma, PoS, bio_tag, sco_tag in sent]
+    else:
+        return [sco_tag for token, lemma, PoS, bio_tag, sco_tag in sent]
+    
 # Clasificadores: MLP, NB y SVM y CRF.
 
 # MLP
@@ -171,15 +176,16 @@ class get_frase(object):
         self.n_sent = 1.0
         self.data = data
         self.empty = False
-        agg_func = lambda s: [(w, l, p, t) for w, l, p, t in zip(s["word"].values.tolist(),
+        agg_func = lambda s: [(w, l, p, t, s) for w, l, p, t, s in zip(s["word"].values.tolist(),
                                                            s["lemma"].values.tolist(),                               
                                                            s["PoS"].values.tolist(),
-                                                           s["bio_tag"].values.tolist())]
+                                                           s["bio_tag"].values.tolist(),
+                                                           s["sco_tag"].values.tolist())]
         self.grouped = self.data.groupby(['domain','sentence']).apply(agg_func)
         self.get_frase = [s for s in self.grouped]
         
 
-def training_crf(data, dataset):
+def training_crf(training_cue, data, dataset):
        
     getter = get_frase(data)
     frases = getter.get_frase
@@ -187,8 +193,8 @@ def training_crf(data, dataset):
     get_negaciones(data)
         
     X = [sent2features(f) for f in frases]
-    y = [sent2labels(f) for f in frases]
-    
+    y = [sent2labels(f, training_cue) for f in frases]
+       
     crf = CRF(algorithm='lbfgs',
               c1=0.1,
               c2=0.1,
@@ -199,8 +205,12 @@ def training_crf(data, dataset):
     pred = cross_val_predict(estimator=crf, X=X, y=y, cv=5)
         
     crf.fit(X, y)
+    
+    if training_cue == 'cue':
+        model_filename = os.getcwd() + '/models/' + dataset + '/crf_cue_model.pkl'
+    else:
+        model_filename = os.getcwd() + '/models/' + dataset + '/crf_sco_model.pkl'
         
-    model_filename = os.getcwd() + '/models/' + dataset + '/crf_model.pkl'
     with open(model_filename, 'wb') as file_model:  
         pickle.dump(crf, file_model)
         
@@ -213,3 +223,50 @@ def print_transitions(trans_features):
 def print_state_features(state_features):
     for (attr, label), weight in state_features:
         print("%0.6f %-8s %s" % (weight, label, attr))
+
+
+def training_scope_NER(training_cue, bio_spc_output, dataset):
+    
+    # Training spaCy NER with Custom Entities
+    
+    if training_cue == 'cue':
+        nlp = es_core_news_md.load()
+        model_spc_output = os.getcwd() + '/models/' + dataset + '/spacy_model'
+        LABEL = ['B-Cue', 'I-Cue']
+    else:
+        model_spc_output = os.getcwd() + '/models/' + dataset + '/spacy_model'
+        nlp = spacy.load(model_spc_output)
+        model_spc_output = os.getcwd() + '/models/' + dataset + '/spacy_scope_model'
+        LABEL = ['B-Cue', 'I-Cue', 'B-Sco', 'I-Sco']
+      
+    if 'ner' not in nlp.pipe_names:
+        ner = nlp.create_pipe('ner')
+        nlp.add_pipe(ner, last=True)
+    else:
+        ner =  nlp.get_pipe('ner')
+        
+    n_iter = 10                     # Iteraciones
+    
+    with open (bio_spc_output, 'rb') as fp:
+        TRAIN_DATA = pickle.load(fp)
+        
+    for i in LABEL:
+        ner.add_label(i)
+    
+    optimizer = nlp.resume_training()
+    
+    other_pipes = [pipe for pipe in nlp.pipe_names if pipe != 'ner']
+    with nlp.disable_pipes(*other_pipes):
+        for itn in range(n_iter):
+            random.shuffle(TRAIN_DATA)
+            losses = {}
+            batches = minibatch(TRAIN_DATA, size=compounding(4.0, 32.0, 1.001))
+            for batch in batches:
+                texts, annotations = zip(*batch)
+                nlp.update(texts, annotations, drop=0.2, sgd=optimizer,
+                            losses=losses)
+            print("Losses", losses)
+
+    nlp.to_disk(model_spc_output)
+    
+    return
