@@ -7,14 +7,11 @@ Created on Tue May 26 18:03:28 2020
 """
 
 import os
-import numpy as np
 import pandas as pd
 import csv
 import pickle
 import spacy
-from sklearn.metrics import classification_report, confusion_matrix
 
-import setup
 import training
 
 # Módulo de test
@@ -106,16 +103,18 @@ def testing_model_svm(filenames_in, path_files_in, v, dataset):
     return
 
 
-def testing_model_crf(filenames_in, path_files_in, dataset):
+def testing_model_crf(filenames_in, path_files_in, dataset, file_test_group):
     
     # path = os.getcwd() + '/data/test/test_dev/'    
     # test_files = setup.get_test(path)
 
-    test_files = [os.path.join(path_files_in, 'test_' + f_name + '.txt') for f_name in filenames_in]
+    test_files = [os.path.join(path_files_in, file_test_group + '_' + f_name + '.txt') for f_name in filenames_in]
     
     # Test Cue
     
-    model_filename = os.getcwd() + '/models/' + dataset + '/crf_cue_model.pkl'
+    testing_cue = 'cue'
+    
+    model_filename = os.getcwd() + '/models/' + dataset + '/crf_cue_opt_model.pkl'
     with open(model_filename, 'rb') as file_model:  
         crf_model = pickle.load(file_model)
     
@@ -140,7 +139,7 @@ def testing_model_crf(filenames_in, path_files_in, dataset):
             grouped_data_test = data_test.groupby(['domain','sentence']).apply(agg_func)
             frases_test = [f for f in grouped_data_test]
             
-            X_test = [training.sent2features(f) for f in frases_test]
+            X_test = [training.sent2features(f, testing_cue) for f in frases_test]
             
             y_test_pred_crf = crf_model.predict(X_test)
             
@@ -161,7 +160,9 @@ def testing_model_crf(filenames_in, path_files_in, dataset):
             
     # Test Scopes
     
-    model_filename = os.getcwd() + '/models/' + dataset + '/crf_sco_model.pkl'
+    testing_cue = 'sco'
+    
+    model_filename = os.getcwd() + '/models/' + dataset + '/crf_sco_opt_model.pkl'
     with open(model_filename, 'rb') as file_model:  
         crf_model = pickle.load(file_model)
     
@@ -186,7 +187,7 @@ def testing_model_crf(filenames_in, path_files_in, dataset):
             grouped_data_test = data_test.groupby(['domain','sentence']).apply(agg_func)
             frases_test = [f for f in grouped_data_test]
             
-            X_test = [training.sent2features(f) for f in frases_test]
+            X_test = [training.sent2features(f, testing_cue) for f in frases_test]
             
             y_test_pred_crf = crf_model.predict(X_test)
             
@@ -208,11 +209,11 @@ def testing_model_crf(filenames_in, path_files_in, dataset):
     return
 
 
-def testing_model_NER(filenames_in, path_files_in, dataset):
+def testing_model_NER(filenames_in, path_files_in, dataset, file_test_group):
     
     # Esta función hace el testing de CUE y SCOPE secuencialmente
 
-    test_files = [os.path.join(path_files_in, 'test_' + f_name + '.txt') for f_name in filenames_in]
+    test_files = [os.path.join(path_files_in, file_test_group + '_' + f_name + '.txt') for f_name in filenames_in]
     
     # Test Cue
     
@@ -240,7 +241,7 @@ def testing_model_NER(filenames_in, path_files_in, dataset):
             frase = ' '.join(word[1] for word in f)
             doc = nlp2(frase)        
             fragmento_d_test_tag = pd.DataFrame([(e.text, e.ent_iob_, word[0], e.ent_type_) for e, word in zip(doc, f)])
-            fragmento_d_test_tag[3].replace(r'^\s*$', 'O-Cue', regex=True, inplace = True)
+            fragmento_d_test_tag[3].replace(r'^\s*$', 'O', regex=True, inplace = True)
             fragmento_d_test_tag = fragmento_d_test_tag.append(pd.Series(), ignore_index = True)
             data_test_tag = pd.concat([data_test_tag, fragmento_d_test_tag], axis=0)
                
@@ -292,7 +293,7 @@ def testing_model_NER(filenames_in, path_files_in, dataset):
             frase = ' '.join(word[1] for word in f)
             doc = nlp2(frase)        
             fragmento_d_test_tag = pd.DataFrame([(e.text, e.ent_iob_, word[0], e.ent_type_) for e, word in zip(doc, f)])
-            fragmento_d_test_tag[3].replace(r'^\s*$', 'O-Sco', regex=True, inplace = True)
+            fragmento_d_test_tag[3].replace(r'^\s*$', 'O', regex=True, inplace = True)
             fragmento_d_test_tag = fragmento_d_test_tag.append(pd.Series(), ignore_index = True)
             data_test_tag = pd.concat([data_test_tag, fragmento_d_test_tag], axis=0)
                

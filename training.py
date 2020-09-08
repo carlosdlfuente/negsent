@@ -7,21 +7,18 @@ Created on Tue May 26 18:07:24 2020
 """
 
 import os
-import numpy as np
 import pickle
 import collections
-import es_core_news_md
+import es_core_news_lg
 import random
 import spacy
+import re
 from spacy.util import minibatch, compounding
-from sklearn.model_selection import train_test_split
 from sklearn.linear_model import Perceptron
 from sklearn.naive_bayes import MultinomialNB
 from sklearn import svm
-from sklearn.model_selection import cross_val_score, cross_val_predict
+from sklearn.model_selection import cross_val_predict
 from sklearn_crfsuite import CRF
-from sklearn_crfsuite.metrics import flat_classification_report
-from tqdm import tqdm # loading bar
 
 
 def get_negaciones(data):
@@ -42,87 +39,232 @@ def check_negacion(lema):
         return(False)
         
 
-def word2features(sent, i):
+def word2features(sent, i): 
+    
+    postag_negacion = ['rn', 'rg']
 
     features = {
         'bias': 1.0,
+        # # 'word': sent[i][0],
+        'postag_neg': True if sent[i][2] in postag_negacion else False,     
+        'pref_negation': True if check_perfijo_negacion(sent[i][1]) else False,
         'known_cue' : True if check_negacion(sent[i][1]) else False,
+        'has_us': True if re.match(r'.*\_.*', sent[i][1]) else False,
     }
     minimum_index = max(i - 7, 0)
     maximum_index = min(i + 7, len(sent) - 1)
 
-    for j in range(minimum_index, maximum_index + 1):
-        if j == i - 6:
-            features.update({
-                'lemma-6': sent[j][1],
-                'postag-6': sent[j][2]
-            })
-        if j == i - 5:
-            features.update({
-                'lemma-5': sent[j][1],
-                'postag-5': sent[j][2]
-            })
-        if j == i - 4:
-            features.update({
-                'lemma-4': sent[j][1],
-                'postag-4': sent[j][2]
-            })
-        if j == i - 3:
-            features.update({
-                'lemma-3': sent[j][1],
-                'postag-3': sent[j][2]
-            })
-        if j == i - 2:
-            features.update({
-                'lemma-2': sent[j][1],
-                'postag-2': sent[j][2]
-            })
-        elif j == i - 1:
-            features.update({
-                'lemma-1': sent[j][1],
-                'postag-1': sent[j][2]
-            })
-        elif j == i:
-            features.update({
-                'lemma': sent[i][1],
-                'postag': sent[i][2]
-            })
-        elif j == i + 1:
-            features.update({
-                'lemma+1': sent[j][1],
-                'postag+1': sent[j][2]
-            })
-        elif j == i + 2:
-            features.update({
-                'lemma+2': sent[j][1],
-                'postag+2': sent[j][2]
-            })
-        elif j == i + 3:
-            features.update({
-                'lemma+3': sent[j][1],
-                'postag+3': sent[j][2]
-            })
-        elif j == i + 4:
-            features.update({
-                'lemma+4': sent[j][1],
-                'postag+4': sent[j][2]
-            })
-        elif j == i + 5:
-            features.update({
-                'lemma+5': sent[j][1],
-                'postag+5': sent[j][2]
-            })
-        elif j == i + 6:
-            features.update({
-                'lemma+6': sent[j][1],
-                'postag+6': sent[j][2]
-            })
+    if i < 0:
+        features['BOS'] = True
+    elif i > len(sent) - 1:
+        features['EOS'] = True
+    else: 
+        for j in range(minimum_index, maximum_index + 1):
+            if j == i - 6:
+                features.update({
+                    # 'pref_negation-6': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg-6': True if sent[j][2] in postag_negacion else False,
+                    'known_cue-6' : True if check_negacion(sent[j][1]) else False,
+                    'lemma-6': sent[j][1],
+                    'postag-6': sent[j][2],
+                })
+            if j == i - 5:
+                features.update({
+                    # 'pref_negation-5': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg-5': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue-5' : True if check_negacion(sent[j][1]) else False,
+                    'lemma-5': sent[j][1],
+                    'postag-5': sent[j][2],
+                })
+            if j == i - 4:
+                features.update({
+                    # 'pref_negation-4': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg-4': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue-4' : True if check_negacion(sent[j][1]) else False,
+                    'lemma-4': sent[j][1],
+                    'postag-4': sent[j][2],
+                })
+            if j == i - 3:
+                features.update({
+                    # 'pref_negation-3': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg-3': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue-3' : True if check_negacion(sent[j][1]) else False,
+                    'lemma-3': sent[j][1],
+                    'postag-3': sent[j][2],
+                })
+            if j == i - 2:
+                features.update({
+                    # 'pref_negation-2': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg-2': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue-2' : True if check_negacion(sent[j][1]) else False,
+                    'lemma-2': sent[j][1],
+                    'postag-2': sent[j][2],
+                })
+            elif j == i - 1:
+                features.update({
+                    # 'pref_negation-1': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg-1': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue-1' : True if check_negacion(sent[j][1]) else False,
+                    'lemma-1': sent[j][1],
+                    'postag-1': sent[j][2],
+                })
+            elif j == i:
+                features.update({           
+                    'lemma': sent[i][1],
+                    'postag': sent[i][2],
+                })
+            elif j == i + 1:
+                features.update({
+                    # 'pref_negation+1': True if check_perfijo_negacion(sent[j][1]) else False,  
+                    # 'postag_neg+1': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue+1' : True if check_negacion(sent[j][1]) else False,
+                    'lemma+1': sent[j][1],
+                    'postag+1': sent[j][2],
+                })
+            elif j == i + 2:
+                features.update({
+                    # 'pref_negation+2': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg+2': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue+2' : True if check_negacion(sent[j][1]) else False,
+                    'lemma+2': sent[j][1],
+                    'postag+2': sent[j][2],
+                })
+            elif j == i + 3:
+                features.update({                  
+                    # 'pref_negation+3': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg+3': True if sent[j][2] in postag_negacion else False,                       
+                    'known_cue+3' : True if check_negacion(sent[j][1]) else False,
+                    'lemma+3': sent[j][1],
+                    'postag+3': sent[j][2],
+                })
+            elif j == i + 4:
+                features.update({
+                    # 'pref_negation+4': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg+4': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue+4' : True if check_negacion(sent[j][1]) else False,
+                    'lemma+4': sent[j][1],
+                    'postag+4': sent[j][2],
+                })
+            elif j == i + 5:
+                features.update({
+                    # 'pref_negation+5': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg+5': True if sent[j][2] in postag_negacion else False,                       
+                    'known_cue+5' : True if check_negacion(sent[j][1]) else False,
+                    'lemma+5': sent[j][1],
+                    'postag+5': sent[j][2],
+                })
+            elif j == i + 6:
+                features.update({
+                    # 'pref_negation+6': True if check_perfijo_negacion(sent[j][1]) else False,
+                    # 'postag_neg+6': True if sent[j][2] in postag_negacion else False,   
+                    'known_cue+6' : True if check_negacion(sent[j][1]) else False,
+                    'lemma+6': sent[j][1],
+                    'postag+6': sent[j][2],
+                })
+    return features
+
+def check_perfijo_negacion(lema):
+    prefijos_negacion = ['a', 'an', 'anti', 'contra', 'des', 'dis', 'ex', 'extra', 'in', 'im', 'i']
+    if lema[:6] in prefijos_negacion \
+        or lema[:5] in prefijos_negacion \
+            or lema[:4] in prefijos_negacion \
+                or lema[:3] in prefijos_negacion \
+                    or lema[:2] in prefijos_negacion \
+                        or lema[:1] in prefijos_negacion: return True
+    else: return False
+  
+    
+def word2features_scope(sent, i):
+
+    features = {
+        'bias': 1.0,
+        'known_cue' : True if check_negacion(sent[i][1]) else False,
+        # 'has_us': True if re.match(r'.*\_.*', sent[i][1]) else False,
+        # 'is_B_I': True if sent[i][4] in ['B-Sco', 'I-Sco'] else False,
+    }
+    minimum_index = max(i - 7, 0)
+    maximum_index = min(i + 7, len(sent) - 1)
+
+    if i < 0:
+        features['BOS'] = True
+    elif i > len(sent) - 1:
+        features['EOS'] = True
+    else: 
+        for j in range(minimum_index, maximum_index + 1):
+            if j == i - 6:
+                features.update({
+                    'lemma-6': sent[j][1],
+                    'postag-6': sent[j][2]
+                })
+            if j == i - 5:
+                features.update({
+                    'lemma-5': sent[j][1],
+                    'postag-5': sent[j][2]
+                })
+            if j == i - 4:
+                features.update({
+                    'lemma-4': sent[j][1],
+                    'postag-4': sent[j][2]
+                })
+            if j == i - 3:
+                features.update({
+                    'lemma-3': sent[j][1],
+                    'postag-3': sent[j][2]
+                })
+            if j == i - 2:
+                features.update({
+                    'lemma-2': sent[j][1],
+                    'postag-2': sent[j][2]
+                })
+            elif j == i - 1:
+                features.update({
+                    'lemma-1': sent[j][1],
+                    'postag-1': sent[j][2]
+                })
+            elif j == i:
+                features.update({
+                    'lemma': sent[i][1],
+                    'postag': sent[i][2]
+                })
+            elif j == i + 1:
+                features.update({
+                    'lemma+1': sent[j][1],
+                    'postag+1': sent[j][2]
+                })
+            elif j == i + 2:
+                features.update({
+                    'lemma+2': sent[j][1],
+                    'postag+2': sent[j][2]
+                })
+            elif j == i + 3:
+                features.update({
+                    'lemma+3': sent[j][1],
+                    'postag+3': sent[j][2]
+                })
+            elif j == i + 4:
+                features.update({
+                    'lemma+4': sent[j][1],
+                    'postag+4': sent[j][2]
+                })
+            elif j == i + 5:
+                features.update({
+                    'lemma+5': sent[j][1],
+                    'postag+5': sent[j][2]
+                })
+            elif j == i + 6:
+                features.update({
+                    'lemma+6': sent[j][1],
+                    'postag+6': sent[j][2]
+                })
     return features
 
 
-def sent2features(sent):
-    features = [word2features(sent, i) for i in range(len(sent))]
-    return features
+def sent2features(sent, training_cue):
+    if training_cue == 'cue':
+        return [word2features(sent, i) for i in range(len(sent))]
+    else:
+        return [word2features_scope(sent, i) for i in range(len(sent))]
+        # return [word2features(sent, i) for i in range(len(sent))]
 
 def sent2labels(sent, training_cue):
     if training_cue == 'cue':
@@ -192,7 +334,7 @@ def training_crf(training_cue, data, dataset):
    
     get_negaciones(data)
         
-    X = [sent2features(f) for f in frases]
+    X = [sent2features(f, training_cue) for f in frases]
     y = [sent2labels(f, training_cue) for f in frases]
        
     crf = CRF(algorithm='lbfgs',
@@ -216,6 +358,7 @@ def training_crf(training_cue, data, dataset):
         
     return(y, pred, crf)
 
+
 def print_transitions(trans_features):
     for (label_from, label_to), weight in trans_features:
         print("%-6s -> %-7s %0.6f" % (label_from, label_to, weight))
@@ -226,18 +369,17 @@ def print_state_features(state_features):
 
 
 def training_scope_NER(training_cue, bio_spc_output, dataset):
-    
-    # Training spaCy NER with Custom Entities
+
     
     if training_cue == 'cue':
-        nlp = es_core_news_md.load()
+        nlp = es_core_news_lg.load()
         model_spc_output = os.getcwd() + '/models/' + dataset + '/spacy_model'
         LABEL = ['B-Cue', 'I-Cue']
     else:
         model_spc_output = os.getcwd() + '/models/' + dataset + '/spacy_model'
         nlp = spacy.load(model_spc_output)
         model_spc_output = os.getcwd() + '/models/' + dataset + '/spacy_scope_model'
-        LABEL = ['B-Cue', 'I-Cue', 'B-Sco', 'I-Sco']
+        LABEL = ['B-Sco', 'I-Sco']
       
     if 'ner' not in nlp.pipe_names:
         ner = nlp.create_pipe('ner')
@@ -245,7 +387,7 @@ def training_scope_NER(training_cue, bio_spc_output, dataset):
     else:
         ner =  nlp.get_pipe('ner')
         
-    n_iter = 10                     # Iteraciones
+    n_iter = 50                     # Iteraciones
     
     with open (bio_spc_output, 'rb') as fp:
         TRAIN_DATA = pickle.load(fp)
@@ -253,7 +395,8 @@ def training_scope_NER(training_cue, bio_spc_output, dataset):
     for i in LABEL:
         ner.add_label(i)
     
-    optimizer = nlp.resume_training()
+    optimizer = nlp.entity.create_optimizer()
+    
     
     other_pipes = [pipe for pipe in nlp.pipe_names if pipe != 'ner']
     with nlp.disable_pipes(*other_pipes):

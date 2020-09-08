@@ -15,7 +15,7 @@ import numpy as np
 import string
 import csv
 
-tecnica = 'ner'
+tecnica = 'baseline'
 
 def comentarios_neg(grouped_data):  
     
@@ -71,25 +71,6 @@ def dummy(doc):
     return doc
 
 
-# import argparse
-
-# if __name__ == '__main__':
-
-# 	# Command line options
-# 	sys.stdout = codecs.getwriter('utf8')(sys.stdout.buffer)
-# 	tester_opinion = argparse.ArgumentParser(description='Script de evaluación para el análisis de opiniones:\npython3 sentiment_analysis_scorer [OPTIONS] -g <gold standard> -s <system output>\nThis script evaluates a system output with respect to a gold standard. The two files need to have the same number of lines.', formatter_class=argparse.RawTextHelpFormatter)
-# 	requiredNamed = tester_opinion.add_argument_group('required named arguments')
-#     requiredNamed.add_argument('-m', '--model', help='Modelo', required=True)
-# 	requiredNamed.add_argument('-g', '--gold', help='Gold standard', required=True)
-# 	requiredNamed.add_argument('-s', '--system', help='System output', required=True)
-
-# 	args = tester_opinion.parse_args()
-
-# 	model_path = args.model
-#     system_path = args.system
-# 	gold_path = args.gold
-
-# join_data_test()
 dataset_test = 'test'
 dataset_train = 'train_dev'
     
@@ -117,9 +98,6 @@ output  = pd.DataFrame()
 opinion = pd.DataFrame()
 
 for datafile_test, nombre_dominio in zip(test_files, filenames):  
-    
-    # datafile_test = test_files[0]
-    # nombre_dominio = filenames[0]
 
     dominio = []
     nombre_comentario = []

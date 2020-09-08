@@ -70,6 +70,107 @@ def get_test(path):
         if f_name.endswith('.txt'):
             files.append(f_name)
     return(files) 
+
+
+def get_dataset(dset):     
+    
+    # Esta función carga el dataset para el entrenamiento en un df
+
+    bio_dataset = os.getcwd() + '/data/' + dset + '/bio/' + dset + '_dataset.join'
+    
+    # leo el archivo para calcular el # de negaciones y asi ajustar el # de columnas   
+    with open(bio_dataset, 'r') as temp_f:
+        col_count = [len(l.split("\t"))+1 for l in temp_f.readlines()]
+
+    negaciones = int((max(col_count)-8) / 3)
+    column_name_neg = []
+    for i in range(negaciones):
+        column_name_neg+=['cue_'+ str(i), 
+                          'sco_'+ str(i), 
+                          'eve_'+ str(i)]          
+    column_names = ['domain', 'sentence', 'token', 'word', 'lemma', 
+                    'PoS', 'PoS_type'] + column_name_neg
+
+    # leo el archivo para generar un dataframe de trabajo con el # de cols ajustado    
+    df = pd.read_csv(bio_dataset, delimiter = "\t", encoding = 'UTF-8', dtype=object,
+                    header = None, names = column_names, quoting=csv.QUOTE_NONE,
+                    skip_blank_lines=False)    
+    
+    df['id_sentence'] = df['domain'] + '_' + df['sentence'].map(str)
+    column_names = df.columns.tolist()
+    column_names = column_names[-1:] + column_names[:-1]
+    df = df[column_names]
+    
+    for i in range(len(col_count)):
+        if col_count[i] > 9:
+            col_count[i] = (col_count[i] - 8) / 3
+        elif col_count[i] == 9:
+            col_count[i] = 0
+        else:
+            col_count[i] = float('NaN')           
+    df.insert(0, 'negaciones', col_count)
+    
+    return(df, negaciones)
+
+
+def set_bio_frame(bio_frame):     
+    
+    # Esta función anota cada token con BIO format (claves de negación y scope)
+    
+    cue_B = False
+    sco_B = False
+    bio_tag = ['O'] * len(bio_frame)
+    sco_tag = ['O'] * len(bio_frame)
+    for t in range(len(bio_frame)):
+        if (bio_frame.iloc[t]['cue_0'] == '***'):
+            continue
+        elif (bio_frame.iloc[t]['cue_0'] != '-'):
+                if cue_B == False:
+                    bio_tag[t] ='B-Cue'
+                    cue_B = True
+                else:
+                    bio_tag[t] ='I-Cue'
+        if (bio_frame.iloc[t]['cue_0'] == '***'):
+            continue           
+        elif (bio_frame.iloc[t]['sco_0'] != '-'):
+                if sco_B == False:
+                    sco_tag[t] ='B-Sco'
+                    sco_B = True
+                else:
+                    sco_tag[t] ='I-Sco'            
+    return(bio_tag, sco_tag)
+
+
+def genera_tagged_dataset(dataset, tagged_dataset):
+
+    # calcula el número máximo de negaciones y crea un df de trabajo
+    data, negaciones = get_dataset(dataset)
+    
+    frame_aux = pd.DataFrame()
+    frases = data.groupby('id_sentence')
+    for f, frame in frases:
+        columnas = list(frame.columns[:9])
+        if frame.iloc[0]['negaciones'] > 1:
+            for i in range(int(frame.iloc[0]['negaciones'])):
+                for k, v in enumerate(frame.columns):
+                    if v[-1:] == str(i):
+                        columnas.append(v)
+                frame_sel = frame.loc[:, columnas]
+                columnas = list(frame.columns[:9])
+                frame_sel.columns = columnas + ['cue_0', 'sco_0', 'eve_0']
+                frame_sel['bio_tag'], frame_sel['sco_tag'] = set_bio_frame(frame_sel)
+                frame_sel = frame_sel.append(pd.Series(), ignore_index = True)
+                frame_aux = pd.concat([frame_aux, frame_sel], axis = 0)               
+        else:
+            columnas = list(frame.columns[:12])
+            frame_sel = frame.loc[:, columnas]
+            frame_sel['bio_tag'], frame_sel['sco_tag'] = set_bio_frame(frame_sel)  
+            frame_aux = pd.concat([frame_aux, frame_sel], axis = 0)
+            frame_aux = frame_aux.append(pd.Series(), ignore_index = True)
+            
+    # salvo archivo bio_taggeado a disco
+    frame_aux.to_csv(tagged_dataset, encoding = 'UTF-8', sep ='\t')
+    return
     
 
 def get_data(dset):     
@@ -160,7 +261,7 @@ def set_bio_frase(bio_frase, negs):
 
 def tag_dev():
     
-    # Esta función anota todos los arcihvos dev para usarlos como test durante la fase de ajuste
+    # Esta función anota todos los archivos dev para usarlos como test durante la fase de ajuste
     
     path_dev_test = os.getcwd() + '/data/dev/dev_test/'
     path_dev_tagged_test = os.getcwd() + '/data/dev/dev_test/tagged/'
@@ -230,15 +331,18 @@ def get_max_negs(frases_d_test):
     
     # Esta función la usa bio_conll para calcular el número máx de negaciones de un archivo
     
-    b=[]
-    max_bs = 0
+    max_negs = 0
     for f in frases_d_test:
-        b = []
+        b_cue = []
+        b_sco = []
         for t in f:
-            b.append(t[2])
-        bs = b.count('B-Cue')
-        if bs > max_bs: max_bs = bs
-    return(max_bs)
+            b_cue.append(t[2])
+            b_sco.append(t[3])
+        bs_cue = b_cue.count('B-Cue')
+        bs_sco = b_sco.count('B-Sco')
+        if bs_cue > max_negs: max_negs = bs_cue
+        if bs_sco > max_negs: max_negs = bs_sco
+    return(max_negs)
 
 
 def get_columnas_b_i_cue(cue_b_i, cue_b_i_pos):
@@ -253,13 +357,20 @@ def get_columnas_b_i_cue(cue_b_i, cue_b_i_pos):
             grupo_pos.append(j)
         else:
             grupo_final.append(grupo)
-            grupo = []
+            grupo = []            
             grupo.append(i)
             grupo_pos_final.append(grupo_pos)
-            grupo_pos = []
+            grupo_pos = []            
             grupo_pos.append(j)
     grupo_final.append(grupo)
     grupo_pos_final.append(grupo_pos)
+    
+    if grupo_final[0] == ['I-Cue']:
+        if len(grupo_final) > 1:
+            grupo_final[0] = grupo_final[0] + grupo_final[1]
+            grupo_final.remove(grupo_final[1])
+            grupo_pos_final[0] = grupo_pos_final[0] + grupo_pos_final[1]
+            grupo_pos_final.remove(grupo_pos_final[1])      
             
     for i in range(len(grupo_final)):
         columnas.append('cue_' + str(i)) 
@@ -267,14 +378,40 @@ def get_columnas_b_i_cue(cue_b_i, cue_b_i_pos):
     return(columnas, grupo_pos_final)
   
 
-def get_columnas_b_i_scope(cue_b_i, cue_b_i_pos):   
+# def get_columnas_b_i_scope(cue_b_i, cue_b_i_pos):   
+#     columnas = []
+#     grupo = [cue_b_i[0]]
+#     grupo_pos = [cue_b_i_pos[0]]
+#     grupo_final = []
+#     grupo_pos_final = []
+#     for i , j, k in zip(cue_b_i[1:], cue_b_i_pos[1:], range(len(cue_b_i_pos[1:]))):
+#         if i == 'I-Sco' and (cue_b_i_pos[k+1] - cue_b_i_pos[k] == 1):
+#             grupo.append(i)
+#             grupo_pos.append(j)
+#         else:
+#             grupo_final.append(grupo)
+#             grupo = []
+#             grupo.append(i)
+#             grupo_pos_final.append(grupo_pos)
+#             grupo_pos = []
+#             grupo_pos.append(j)
+#     grupo_final.append(grupo)
+#     grupo_pos_final.append(grupo_pos)
+            
+#     for i in range(len(grupo_final)):
+#         columnas.append('sco_' + str(i)) 
+        
+#     return(columnas, grupo_pos_final)
+
+def get_columnas_b_i_scope(cue_b_i, cue_b_i_pos, posiciones_b_cue):   
     columnas = []
     grupo = [cue_b_i[0]]
     grupo_pos = [cue_b_i_pos[0]]
     grupo_final = []
     grupo_pos_final = []
+    col_cue = []
     for i , j, k in zip(cue_b_i[1:], cue_b_i_pos[1:], range(len(cue_b_i_pos[1:]))):
-        if i == 'I-Sco' and (cue_b_i_pos[k+1] - cue_b_i_pos[k] == 1):
+        if (i == 'I-Sco' or i == 'B-Sco') and (cue_b_i_pos[k+1] - cue_b_i_pos[k] == 1):
             grupo.append(i)
             grupo_pos.append(j)
         else:
@@ -288,23 +425,40 @@ def get_columnas_b_i_scope(cue_b_i, cue_b_i_pos):
     grupo_pos_final.append(grupo_pos)
             
     for i in range(len(grupo_final)):
-        columnas.append('sco_' + str(i)) 
+        col_cue = [pos_col_b_cue for pos_col_b_cue, cue in enumerate(posiciones_b_cue) if cue in grupo_pos_final[i]] 
+        if col_cue:
+            columnas.append('sco_' + str(col_cue[0])) 
+        else:       # asigana el valor de la ultima columna
+            # if i != 0:
+            columnas.append('sco_' + str(i))      
+            # else:
+            #     columnas.append('sco_0')
+    
+    # Uno columnas con el mismo nombre
+    if len(columnas) != len(set(columnas)):
+        inx_duplicates = dict((x, duplicates(columnas, x)) for x in set(columnas) if columnas.count(x) > 1)
+        for key_duplicate, value_duplicate in inx_duplicates.items():
+            columnas.remove(columnas[1])
+            grupo_pos_final[value_duplicate[0]] = grupo_pos_final[value_duplicate[0]] + grupo_pos_final[value_duplicate[1]]
+            grupo_pos_final.remove(grupo_pos_final[value_duplicate[1]])        
         
     return(columnas, grupo_pos_final)
 
+
+def duplicates(lst, item):
+    return [i for i, x in enumerate(lst) if x == item]
+
     
-def bio_conll(tecnica, f_name):
+def bio_conll(tecnica, f_name, file_test_group):
     
     # Esta función transforma un archivo con anotación BIO en Cue y Scope a Conll
     
-    f_mame='moviles'
-    
     if tecnica == 'crf':
-        input_file = os.getcwd() + '/outputs/output_crf_cue_scope_test_' + f_name + '.txt'
-        output_conll = os.getcwd() + '/scorer/output_crf_test_cue_scope_' + f_name + '_cll.txt'
+        input_file = os.getcwd() + '/outputs/output_crf_cue_scope_' + file_test_group + '_' + f_name + '.txt'
+        output_conll = os.getcwd() + '/scorer/output_crf_cue_scope_' + file_test_group + '_' + f_name + '_cll.txt'
     else:
-        input_file = os.getcwd() + '/outputs/output_ner_cue_scope_test_' + f_name + '.txt'
-        output_conll = os.getcwd() + '/scorer/output_ner_test_cue_scope_' + f_name + '_cll.txt'
+        input_file = os.getcwd() + '/outputs/output_ner_cue_scope_' + file_test_group + '_' + f_name + '.txt'
+        output_conll = os.getcwd() + '/scorer/output_ner_cue_scope_' + file_test_group + '_' + f_name + '_cll.txt'
     
     col_names = ['domain', 'sentence', 'token', 'word', 'lemma', 
                             'PoS', 'PoS_type', 'bio_tag', 'sco_tag']
@@ -336,20 +490,21 @@ def bio_conll(tecnica, f_name):
     d_conll = pd.DataFrame(columns = column_neg)
     
     for f in frases_d_test:
-        fragmento_d_conll = pd.DataFrame(columns = column_neg)
-        
+        # f = frases_d_test[3]
+
         token = []
         b = []      # almacena cue-tags
         bs = []     # almacena sco-tags
         w = []
+        cols_cue = []
+        cols_scope = []
+        
         for t in f:
             token.append(t[0])
             w.append(t[1])
             b.append(t[2])
             bs.append(t[3])
-        fragmento_d_conll['token'] = token
-        
-            
+
         posiciones_b_cue = [pos_b for pos_b, x in enumerate(b) if x == 'B-Cue']
         posiciones_i_cue = [pos_b for pos_b, x in enumerate(b) if x == 'I-Cue']
         # posiciones_o_cue = [pos_b for pos_b, x in enumerate(b) if x == 'O-Cue']
@@ -357,21 +512,24 @@ def bio_conll(tecnica, f_name):
         posiciones_i_sco = [pos_b for pos_b, x in enumerate(bs) if x == 'I-Sco']
         # posiciones_o_sco = [pos_b for pos_b, x in enumerate(bs) if x == 'O-Sco']
             
-        max_ngs = max(len(posiciones_b_cue), len(posiciones_i_cue), 
+        max_ngs_f = max(len(posiciones_b_cue), len(posiciones_i_cue), 
                       len(posiciones_b_sco), len(posiciones_i_sco))
         
-        if max_ngs == 0:
+        fragmento_d_conll = pd.DataFrame(columns = column_neg)            
+        fragmento_d_conll['token'] = token
+        
+        if max_ngs_f == 0:
             fragmento_d_conll['cue_0'] = '***'    
         else:
             
             cue_b_i = []
             for item in b:
-                if item != 'O-Cue':
+                if item != 'O':
                     cue_b_i.append(item)
                 
             sco_b_i = []
             for item in bs:
-                if item != 'O-Sco':
+                if item != 'O':
                     sco_b_i.append(item)
                     
             if cue_b_i: 
@@ -379,15 +537,23 @@ def bio_conll(tecnica, f_name):
                 cols_cue, posiciones_cue = get_columnas_b_i_cue(cue_b_i, posiciones_b_i_cue)
                 for col_cue, pos_cue in zip(cols_cue, posiciones_cue):
                     for item in pos_cue:
-                        fragmento_d_conll.loc[item, col_cue] = w[item]  
+                        fragmento_d_conll.loc[item, col_cue] = w[item]
             
             if sco_b_i:
                 posiciones_b_i_sco = sorted(posiciones_b_sco + posiciones_i_sco)
-                cols_scope, posiciones_sco = get_columnas_b_i_scope(sco_b_i, posiciones_b_i_sco)        
+                # cols_scope, posiciones_sco = get_columnas_b_i_scope(sco_b_i, posiciones_b_i_sco)        
+                # for col_sco, pos_sco in zip(cols_scope, posiciones_sco):
+                #     for item in pos_sco:
+                #         fragmento_d_conll.loc[item, col_sco] = w[item]      
+                cols_scope, posiciones_sco = get_columnas_b_i_scope(sco_b_i, posiciones_b_i_sco, posiciones_b_cue)        
                 for col_sco, pos_sco in zip(cols_scope, posiciones_sco):
                     for item in pos_sco:
                         fragmento_d_conll.loc[item, col_sco] = w[item]           
-            for n_col in range (fragmento_d_conll.shape[1]):
+
+            # max_cols = (max(int(col_cue.split('_')[1]), int(col_sco.split('_')[1])) + 1) * 3 + 1
+            
+            max_cols = max(len(cols_cue), len(cols_scope)) * 3 + 1
+            for n_col in range(max_cols):
                 for n_row in range (fragmento_d_conll.shape[0]):
                     if pd.isna(fragmento_d_conll.iloc[n_row, n_col]):
                         fragmento_d_conll.iloc[n_row, n_col] = '-'
@@ -518,6 +684,7 @@ def convert_json_spacy_format(input_file=None, output_file=None):
 def tsv_spacy_cue_format():
     
     # Esta funcion transforma TSV (BIO) -> TSV (BIO) 2 COLS -> JSON -> SPACY FORMAT
+    # Sustituye '_o' por '_tagged'
     
     datasets = ['train', 'dev', 'train_dev']
        
@@ -543,6 +710,7 @@ def tsv_spacy_scope_format():
     
     # Esta funcion transforma TSV (BIO) -> TSV (BIO) 2 COLS -> JSON -> SPACY FORMAT
     # para Scopes
+    # Sustituye '_o' por '_tagged'
     
     datasets = ['train', 'dev', 'train_dev']
        
@@ -564,18 +732,18 @@ def tsv_spacy_scope_format():
     return
 
 
-def genera_cue_scope(tecnica):
+def genera_cue_scope(tecnica, file_test_group):
     
     # Esta función concatena tags de clave y scope en un nuevo archivo para transformar a Conll
     
     if tecnica == 'ner':
-        path_cue_test = os.getcwd() + '/outputs/output_ner_cue_test_'
-        path_scope_test = os.getcwd() + '/outputs/output_ner_scope_test_'
-        path_cue_scope_test = os.getcwd() + '/outputs/output_ner_cue_scope_test_'
+        path_cue_test = os.getcwd() + '/outputs/output_ner_cue_' + file_test_group + '_'
+        path_scope_test = os.getcwd() + '/outputs/output_ner_scope_' + file_test_group + '_'
+        path_cue_scope_test = os.getcwd() + '/outputs/output_ner_cue_scope_' + file_test_group + '_'
     else:
-        path_cue_test = os.getcwd() + '/outputs/output_crf_cue_test_'
-        path_scope_test = os.getcwd() + '/outputs/output_crf_scope_test_'
-        path_cue_scope_test = os.getcwd() + '/outputs/output_crf_cue_scope_test_'        
+        path_cue_test = os.getcwd() + '/outputs/output_crf_cue_' + file_test_group + '_'
+        path_scope_test = os.getcwd() + '/outputs/output_crf_scope_' + file_test_group + '_'
+        path_cue_scope_test = os.getcwd() + '/outputs/output_crf_cue_scope_' + file_test_group + '_'        
     
     filenames = ['coches', 'lavadoras', 'hoteles', 'moviles', 'libros', 'musica', 
              'ordenadores', 'peliculas']
@@ -598,4 +766,9 @@ def genera_cue_scope(tecnica):
                                header = None, encoding = 'UTF-8')
     return
 
+# file_test_group = 'test'
+# f_name='hoteles'
+# tecnica = 'ner'
 
+
+# bio_conll(tecnica, f_name, file_test_group)
